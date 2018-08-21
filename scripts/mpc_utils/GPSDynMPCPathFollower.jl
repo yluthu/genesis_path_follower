@@ -160,13 +160,22 @@ module GPSDynMPCPathFollower
 	#############################################
 	##### Model Update Function ###
 
+	function fix_velocity(z_curr::Array{Float64,1})
+		if z_curr[4] < 2.0
+			z_curr[4] = 2.0
+		end
+		return z_curr
+	end
+
 	function update_model(z_curr::Array{Float64,1}, u_curr::Array{Float64,1}) # SINGLE INPUT CASE
-		# Compute nominal trajectory
+		# Compute nominal trajectory	
+		z_curr = fix_velocity(z_curr)	
 		for j = 1:6
 			setvalue(z_nom[1,j], z_curr[j])
 		end
 
 		for i = 1:N
+			z_curr = fix_velocity(z_curr)
 			lin_point = vec([z_curr;u_curr])
 			f = dyn_fncn( lin_point  )
 			J = jac_dyn_fncn( lin_point )
@@ -194,11 +203,14 @@ module GPSDynMPCPathFollower
 
 	function update_model(z_curr::Array{Float64,1}, u_curr::Array{Float64,2}) # INPUT TRAJECTORY CASE
 		# Compute nominal trajectory
+		z_curr = fix_velocity(z_curr)
+		
 		for j = 1:6
 			setvalue(z_nom[1,j], z_curr[j])
 		end
 
 		for i = 1:N
+			z_curr = fix_velocity(z_curr)
 			if i < N
 				u = vec(u_curr[i+1,:])
 			else
