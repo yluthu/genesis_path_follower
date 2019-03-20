@@ -11,7 +11,7 @@ import scipy.io as sio
 # HELPER FUNCTIONS
 ################################################
 def latlon_to_XY(lat0, lon0, lat1, lon1):
-	''' 
+	'''
 	Convert latitude and longitude to global X, Y coordinates,
 	using an equirectangular projection.
 
@@ -38,51 +38,58 @@ class GPSRefTrajectory():
 	'''
 	Class to load a matfile GPS trajectory and provide functions to obtain a
 	local trajectory from the full trajectory for MPC using the current vehicle state.
-	'''	
+	'''
 	def __init__(self, mat_filename=None, LAT0=None, LON0=None, YAW0=None, traj_horizon=8, traj_dt=0.2):
-		if type(LAT0) != float or type(LON0) != float or type(YAW0) != float:
-			raise ValueError('Did not provide proper origin info.')
+		# if type(LAT0) != float or type(LON0) != float or type(YAW0) != float:
+			# raise ValueError('Did not provide proper origin info.')
 
 		if mat_filename is None:
 			raise ValueError('Invalid matfile specified.')
-		
+
 		self.traj_horizon = traj_horizon	# horizon (# time steps ahead) for trajectory reference
 		self.traj_dt = traj_dt				# time discretization (s) for each time step in horizon
 
 		tms  = []		# ROS Timestamps (s)
-		lats = []		# Latitude (decimal degrees)
-		lons = []		# Longitude (decimal degrees)
+		# lats = []		# Latitude (decimal degrees)
+		# lons = []		# Longitude (decimal degrees)
 		yaws = []		# heading (radians ccw wrt East, i.e.global X-axis, aka psi)
 		Xs   = []		# global X position (m, wrt to origin at LON0, LAT0)
 		Ys   = []		# global Y position (m, wrt to origin at LON0, LAT0)
-		cdists = []		# cumulative distance along path (m, aka "s" in Frenet formulation)
+		cdists = [0]		# cumulative distance along path (m, aka "s" in Frenet formulation)
 
 		data_dict = sio.loadmat(mat_filename)
-			
-		tms  = np.ravel(data_dict['t'])
-		lats = np.ravel(data_dict['lat'])
-		lons = np.ravel(data_dict['lon'])
-		yaws = np.ravel(data_dict['psi'])
 
-		for i in range(len(lats)):
-			lat = lats[i]; lon = lons[i]
-			X,Y = latlon_to_XY(LAT0, LON0, lat, lon)
-			if len(Xs) == 0: 		# i.e. the first point on the trajectory
-				cdists.append(0.0)	# s = 0
-			else:					# later points on the trajectory
-				d = math.sqrt( (X - Xs[-1])**2 + (Y - Ys[-1])**2 ) + cdists[-1]
-				cdists.append(d) 	# s = s_prev + dist(z[i], z[i-1])
-			Xs.append(X)
-			Ys.append(Y)
+		tms  = np.ravel(data_dict['t'])
+		# lats = np.ravel(data_dict['lat'])
+		# lons = np.ravel(data_dict['lon'])
+		yaws = np.ravel(data_dict['psi'])
+		Xs = np.ravel(data_dict['x'])
+		Ys = np.ravel(data_dict['y'])
+
+		for i in range(len(Xs)-1):
+			# lat = lats[i]; lon = lons[i]
+			# X,Y = latlon_to_XY(LAT0, LON0, lat, lon)
+			dX = Xs[i+1]-Xs[i]
+			dY = Ys[i+1]-Ys[i]
+			# if len(cdists) == 0: 		# i.e. the first point on the trajectory
+				# cdists.append(0.0)	# s = 0
+			# else:
+									# later points on the trajectory
+			d = math.sqrt( dX**2 + dY**2 ) + cdists[-1]
+			cdists.append(d) 	# s = s_prev + dist(z[i], z[i-1])
+			# Xs.append(X)
+			# Ys.append(Y)
 
 		# global trajectory matrix
-		self.trajectory =  np.column_stack((tms, lats, lons, yaws, Xs, Ys, cdists)) 
-		
+		# self.trajectory =  np.column_stack((tms, lats, lons, yaws, Xs, Ys, cdists))
+		dummy_data = np.ones(len(Xs)) * np.nan
+		self.trajectory =  np.column_stack((tms, dummy_data, dummy_data, yaws, Xs, Ys, cdists))	# VG HACK
+
 		# interpolated path or what I call "local trajectory" -> reference to MPC
 		self.x_interp	= None
 		self.y_interp	= None
 		self.psi_interp	= None
-		
+
 		# some handles for plotting (see plot_interpolation)
 		self.f = None
 		self.l_arr = None
@@ -98,7 +105,7 @@ class GPSRefTrajectory():
 
 	def get_yaws(self):
 		return self.trajectory[:,3]
-		
+
 	# Main callback function to get the waypoints from the vehicle's initial pose and the prerecorded global trajectory.
 	def get_waypoints(self, X_init, Y_init, yaw_init, v_target=None):
 
@@ -107,7 +114,7 @@ class GPSRefTrajectory():
 
 		# find the index of the closest point on the trajectory to the initial vehicle pose
 		diff_dists = np.sum( (XY_traj-xy_query)**2, axis=1)
-		closest_traj_ind = np.argmin(diff_dists) 
+		closest_traj_ind = np.argmin(diff_dists)
 
 		# TODO: this function does not handle well the case where the car is far from the recorded path!  Ill-defined behavior/speed.
 		# May use np.min(diff_dists) and add appropriate logic to handle this edge case.
@@ -124,7 +131,7 @@ class GPSRefTrajectory():
 			return
 
 		if self.f is None:
-		# figure creation		
+		# figure creation
 			self.f = plt.figure()
 			plt.ion()
 
@@ -142,7 +149,7 @@ class GPSRefTrajectory():
 			self.l_arr[2].set_ydata(y)
 
 		self.f.canvas.draw()
-		plt.pause(0.05)	
+		plt.pause(0.05)
 
 	''' Helper functions: you shouldn't need to call these! '''
 	def __waypoints_using_vtarget(self, closest_traj_ind, v_target, yaw_init):
@@ -165,7 +172,7 @@ class GPSRefTrajectory():
 
 	def __waypoints_using_time(self, closest_traj_ind, yaw_init):
 		start_tm = self.trajectory[closest_traj_ind,0] # t0, time of recorded trajectory corresponding to closest point
-		
+
 		times_to_fit = [h*self.traj_dt + start_tm for h in range(0,self.traj_horizon+1)]
 		# NOTE: np.interp returns the first value x[0] if t < t[0] and the last value x[-1] if t > t[-1].
 		self.x_interp = np.interp(times_to_fit, self.trajectory[:,0], self.trajectory[:,4]) 	 # x_des = f_interp(t_des, t_actual, x_actual)

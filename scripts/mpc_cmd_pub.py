@@ -11,6 +11,9 @@ from genesis_path_follower.msg import state_est
 from genesis_path_follower.msg import mpc_path
 from std_msgs.msg import UInt8 as UInt8Msg
 from std_msgs.msg import Float32 as Float32Msg
+from nav_msgs.msg import Path
+from geometry_msgs.msg import PoseStamped
+from tf.transformations import quaternion_from_euler
 
 ###########################################
 #### LOAD ROSPARAMS
@@ -22,7 +25,7 @@ else:
 
 if rospy.has_param("track_using_time") and rospy.has_param("target_vel"):
 	track_with_time = rospy.get_param("track_using_time")
-	target_vel = rospy.get_param("target_vel")	
+	target_vel = rospy.get_param("target_vel")
 else:
 	raise ValueError("Invalid rosparam trajectory definition: track_using_time and target_vel")
 
@@ -31,12 +34,12 @@ if rospy.has_param("scripts_dir"):
 else:
 	raise ValueError("Did not provide the scripts directory!")
 
-if rospy.has_param("lat0") and rospy.has_param("lat0") and rospy.has_param("lat0"):
-	lat0 = rospy.get_param("lat0")
-	lon0 = rospy.get_param("lon0")
-	yaw0 = rospy.get_param("yaw0")
-else:
-	raise ValueError("Invalid rosparam global origin provided!")
+# if rospy.has_param("lat0") and rospy.has_param("lat0") and rospy.has_param("lat0"):
+# 	lat0 = rospy.get_param("lat0")
+# 	lon0 = rospy.get_param("lon0")
+# 	yaw0 = rospy.get_param("yaw0")
+# else:
+# 	raise ValueError("Invalid rosparam global origin provided!")
 ###########################################
 #### Reference GPS Trajectory Module
 ###########################################
@@ -45,7 +48,8 @@ import sys
 gps_utils_loc = scripts_dir + "gps_utils/"
 sys.path.append(gps_utils_loc)
 import ref_gps_traj as rgt
-grt = rgt.GPSRefTrajectory(mat_filename=mat_fname, LAT0=lat0, LON0=lon0, YAW0=yaw0)
+# grt = rgt.GPSRefTrajectory(mat_filename=mat_fname, LAT0=lat0, LON0=lon0, YAW0=yaw0)
+grt = rgt.GPSRefTrajectory(mat_filename=mat_fname)
 
 ###########################################
 #### MPC Controller Module with Cost Function Weights.
@@ -65,7 +69,7 @@ if target_vel > 0.0:
 else:
 	des_speed = 0.00
 
-ref_lock = False				
+ref_lock = False
 received_reference = False
 x_curr  = 0.0
 y_curr  = 0.0
@@ -87,7 +91,7 @@ def state_est_callback(msg):
 		v_curr = msg.v
 		received_reference = True
 
-def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj):
+def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj, nav_path_pub_obj):
 	loop_rate = rospy.Rate(20.0)
 	while not rospy.is_shutdown():
 		if not received_reference:
@@ -96,7 +100,7 @@ def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj):
 			continue
 
 		# Ref lock used to ensure that get/set of state doesn't happen simultaneously.
-		global ref_lock				
+		global ref_lock
 		ref_lock = True
 
 		global x_curr, y_curr, psi_curr, v_curr, des_speed, command_stop
@@ -105,20 +109,20 @@ def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj):
 			# fixed velocity-based path tracking
 			x_ref, y_ref, psi_ref, stop_cmd = grt.get_waypoints(x_curr, y_curr, psi_curr, des_speed)
 			if stop_cmd == True:
-				command_stop = True			
+				command_stop = True
 		else:
 			# trajectory tracking
 			x_ref, y_ref, psi_ref, stop_cmd = grt.get_waypoints(x_curr, y_curr, psi_curr)
 
 			if stop_cmd == True:
 				command_stop = True
-		
+
 		# Update Model
 		kmpc.update_init_cond(x_curr, y_curr, psi_curr, v_curr)
 		kmpc.update_reference(x_ref, y_ref, psi_ref, des_speed)
 
 		ref_lock = False
-		
+
 		if command_stop == False:
 			a_opt, df_opt, is_opt, solv_time = kmpc.solve_model()
 
@@ -142,7 +146,7 @@ def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj):
 			mpc_path_msg.xs   = res[0] 	# x_mpc
 			mpc_path_msg.ys   = res[1] 	# y_mpc
 			mpc_path_msg.vs   = res[2]	# v_mpc
-			mpc_path_msg.psis = res[3] 	# psi_mpc	
+			mpc_path_msg.psis = res[3] 	# psi_mpc
 			mpc_path_msg.xr   = res[4] 	# x_ref
 			mpc_path_msg.yr   = res[5] 	# y_ref
 			mpc_path_msg.vr   = [res[6]]# v_ref
@@ -150,9 +154,30 @@ def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj):
 			mpc_path_msg.df   = res[8]	# d_f
 			mpc_path_msg.acc  = res[9]	# acc
 			mpc_path_pub_obj.publish(mpc_path_msg)
+
+			nav_path_msg = Path();
+			nav_path_msg.header.frame_id = 'map'
+			for i in range(len(res[0])):
+				p = PoseStamped()
+				p.header.seq = i
+				p.header.frame_id = 'map'
+				p.pose.position.x = res[4][i]
+				p.pose.position.y = res[5][i]
+				p.pose.position.z = 0
+
+				quaternion = quaternion_from_euler(0.0, 0.0, res[7][i])
+				#type(pose) = geometry_msgs.msg.Pose
+				p.pose.orientation.x = quaternion[0]
+				p.pose.orientation.y = quaternion[1]
+				p.pose.orientation.z = quaternion[2]
+				p.pose.orientation.w = quaternion[3]
+				nav_path_msg.poses.append(p)
+
+			nav_path_pub_obj.publish(nav_path_msg)
+
 		else:
 			acc_pub_obj.publish(Float32Msg(-1.0))
-			steer_pub_obj.publish(Float32Msg(0.0))						
+			steer_pub_obj.publish(Float32Msg(0.0))
 
 		loop_rate.sleep()
 
@@ -165,6 +190,7 @@ def start_mpc_node():
 	steer_enable_pub = rospy.Publisher("/control/enable_spas",  UInt8Msg, queue_size=2, latch=True)
 
 	mpc_path_pub = rospy.Publisher("mpc_path", mpc_path, queue_size=2)
+	nav_path_pub = rospy.Publisher("nav_path", Path, queue_size=2)
 	sub_state  = rospy.Subscriber("state_est", state_est, state_est_callback, queue_size=2)
 
 	# Start up Ipopt/Solver.
@@ -173,7 +199,8 @@ def start_mpc_node():
 
 	acc_enable_pub.publish(UInt8Msg(2))
 	steer_enable_pub.publish(UInt8Msg(1))
-	pub_loop(acc_pub, steer_pub, mpc_path_pub)
+	pub_loop(acc_pub, steer_pub, mpc_path_pub, nav_path_pub)
 
-if __name__=='__main__':	
+
+if __name__=='__main__':
 	start_mpc_node()
