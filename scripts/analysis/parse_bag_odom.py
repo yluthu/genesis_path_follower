@@ -387,7 +387,7 @@ def parse_odom(bag, res_dict):
 		q = (ori.x, ori.y, ori.z, ori.w)
 		quats.append(q)
 		r, p, y = euler_from_quaternion(q)
-		psis.append(y)			
+		psis.append(y + np.pi/2.0)			
 					
 	
 	res_dict['t'] = tms

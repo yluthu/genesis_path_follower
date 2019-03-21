@@ -116,8 +116,7 @@ def parse_odom(msg):
 	ori = msg.pose.pose.orientation
 	q = (ori.x, ori.y, ori.z, ori.w)
 	roll, pitch, yaw = euler_from_quaternion(q)
-	odom_psi = yaw
-
+	odom_psi = yaw + np.pi/2.0
 
 def pub_loop():
 	rospy.init_node('state_publisher', anonymous=True)
