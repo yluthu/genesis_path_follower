@@ -9,8 +9,6 @@ from genesis_path_follower.msg import state_est
 from tf.transformations import euler_from_quaternion
 from nav_msgs.msg import Odometry
 
-
-
 # Vehicle State Publisher for the Hyundai Genesis.  Uses OxTS and vehicle CAN messages to localize.
 
 ''' Global Variables for Callbacks '''
@@ -116,7 +114,7 @@ def parse_odom(msg):
 	ori = msg.pose.pose.orientation
 	q = (ori.x, ori.y, ori.z, ori.w)
 	roll, pitch, yaw = euler_from_quaternion(q)
-	odom_psi = yaw + np.pi/2.0
+	odom_psi = yaw + m.pi/2.0
 
 def pub_loop():
 	rospy.init_node('state_publisher', anonymous=True)

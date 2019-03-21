@@ -14,6 +14,7 @@ from std_msgs.msg import Float32 as Float32Msg
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 from tf.transformations import quaternion_from_euler
+import numpy as np
 
 ###########################################
 #### LOAD ROSPARAMS
@@ -91,7 +92,7 @@ def state_est_callback(msg):
 		v_curr = msg.v
 		received_reference = True
 
-def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj, nav_path_pub_obj):
+def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj, nav_path_pub_obj, nav_path_local_pub_obj):
 	loop_rate = rospy.Rate(20.0)
 	while not rospy.is_shutdown():
 		if not received_reference:
@@ -123,6 +124,7 @@ def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj, nav_path_pub_obj):
 
 		ref_lock = False
 
+		command_stop = False # HACK
 		if command_stop == False:
 			a_opt, df_opt, is_opt, solv_time = kmpc.solve_model()
 
@@ -161,19 +163,42 @@ def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj, nav_path_pub_obj):
 				p = PoseStamped()
 				p.header.seq = i
 				p.header.frame_id = 'map'
-				p.pose.position.x = res[4][i]
-				p.pose.position.y = res[5][i]
-				p.pose.position.z = 0
+				p.pose.position.x = res[0][i]
+				p.pose.position.y = res[1][i]
+				p.pose.position.z = 0.0
 
-				quaternion = quaternion_from_euler(0.0, 0.0, res[7][i])
+				quaternion = quaternion_from_euler(0.0, 0.0, res[3][i])
 				#type(pose) = geometry_msgs.msg.Pose
 				p.pose.orientation.x = quaternion[0]
 				p.pose.orientation.y = quaternion[1]
 				p.pose.orientation.z = quaternion[2]
 				p.pose.orientation.w = quaternion[3]
 				nav_path_msg.poses.append(p)
-
 			nav_path_pub_obj.publish(nav_path_msg)
+
+			# local coordinates
+			nav_path_local_msg = Path();
+			nav_path_local_msg.header.frame_id = 'base_link'
+			x_curr = res[0][0]
+			y_curr = res[1][0]
+			psi_curr = res[3][0]
+			for i in range(len(res[0])):
+				p = PoseStamped()
+				p.header.seq = i
+				p.header.frame_id = 'base_link'
+				p.pose.position.x = (res[0][i]-x_curr)*np.cos(-psi_curr) + (res[1][i]-y_curr)*np.sin(-psi_curr)
+				p.pose.position.y = -(res[0][i]-x_curr)*np.sin(-psi_curr) + (res[1][i]-y_curr)*np.cos(-psi_curr)
+				p.pose.position.z = 0.0
+
+				quaternion = quaternion_from_euler(0.0, 0.0, res[3][i]-psi_curr)
+				#type(pose) = geometry_msgs.msg.Pose
+				p.pose.orientation.x = quaternion[0]
+				p.pose.orientation.y = quaternion[1]
+				p.pose.orientation.z = quaternion[2]
+				p.pose.orientation.w = quaternion[3]
+				nav_path_local_msg.poses.append(p)
+
+			nav_path_local_pub_obj.publish(nav_path_local_msg)
 
 		else:
 			acc_pub_obj.publish(Float32Msg(-1.0))
@@ -191,6 +216,8 @@ def start_mpc_node():
 
 	mpc_path_pub = rospy.Publisher("mpc_path", mpc_path, queue_size=2)
 	nav_path_pub = rospy.Publisher("nav_path", Path, queue_size=2)
+	nav_path_local_pub = rospy.Publisher("nav_path_local", Path, queue_size=2)
+
 	sub_state  = rospy.Subscriber("state_est", state_est, state_est_callback, queue_size=2)
 
 	# Start up Ipopt/Solver.
@@ -199,7 +226,7 @@ def start_mpc_node():
 
 	acc_enable_pub.publish(UInt8Msg(2))
 	steer_enable_pub.publish(UInt8Msg(1))
-	pub_loop(acc_pub, steer_pub, mpc_path_pub, nav_path_pub)
+	pub_loop(acc_pub, steer_pub, mpc_path_pub, nav_path_pub, nav_path_local_pub)
 
 
 if __name__=='__main__':
