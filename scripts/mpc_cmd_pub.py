@@ -134,10 +134,6 @@ def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj, nav_path_pub_obj, nav
 			#log_str = "Solve Status: %s, Acc: %.3f, SA: %.3f, ST: %.3f" % (is_opt, a_opt, df_opt, solv_time)
 			#rospy.loginfo(log_str)
 
-			if is_opt == 'Optimal':
-				acc_pub_obj.publish(Float32Msg(a_opt))
-				steer_pub_obj.publish(Float32Msg(df_opt))
-
 			kmpc.update_current_input(df_opt, a_opt)
 			res = kmpc.get_solver_results()
 
@@ -156,51 +152,55 @@ def pub_loop(acc_pub_obj, steer_pub_obj, mpc_path_pub_obj, nav_path_pub_obj, nav
 			mpc_path_msg.df   = res[8]	# d_f
 			mpc_path_msg.acc  = res[9]	# acc
 			mpc_path_pub_obj.publish(mpc_path_msg)
-
-			nav_path_msg = Path();
-			nav_path_msg.header.frame_id = 'map'
-			for i in range(len(res[0])):
-				p = PoseStamped()
-				p.header.seq = i
-				p.header.frame_id = 'map'
-				p.pose.position.x = res[0][i]
-				p.pose.position.y = res[1][i]
-				p.pose.position.z = 0.0
-
-				quaternion = quaternion_from_euler(0.0, 0.0, res[3][i])
-				#type(pose) = geometry_msgs.msg.Pose
-				p.pose.orientation.x = quaternion[0]
-				p.pose.orientation.y = quaternion[1]
-				p.pose.orientation.z = quaternion[2]
-				p.pose.orientation.w = quaternion[3]
-				nav_path_msg.poses.append(p)
-			nav_path_pub_obj.publish(nav_path_msg)
-
-			# local coordinates
 			
-			nav_path_local_msg = Path();
-			nav_path_local_msg.header.frame_id = 'base_link'
-			x_curr = res[0][0]
-			y_curr = res[1][0]
-			psi_curr = res[3][0] - np.pi/2.0
-			for i in range(len(res[0])):
-				p = PoseStamped()
-				p.header.seq = i
-				p.header.frame_id = 'base_link'
-				p.pose.position.x = (res[0][i]-x_curr)*np.cos(psi_curr) + (res[1][i]-y_curr)*np.sin(psi_curr)
-				p.pose.position.y = -(res[0][i]-x_curr)*np.sin(psi_curr) + (res[1][i]-y_curr)*np.cos(psi_curr)
-				p.pose.position.z = 0.0
+			if is_opt == 'Optimal':
+				acc_pub_obj.publish(Float32Msg(a_opt))
+				steer_pub_obj.publish(Float32Msg(df_opt))
+				
+				nav_path_msg = Path();
+				nav_path_msg.header.frame_id = 'map'
+				for i in range(len(res[0])):
+					p = PoseStamped()
+					p.header.seq = i
+					p.header.frame_id = 'map'
+					p.pose.position.x = res[0][i]
+					p.pose.position.y = res[1][i]
+					p.pose.position.z = 0.0
 
-				quaternion = quaternion_from_euler(0.0, 0.0, res[3][i]-res[3][0])
-				#type(pose) = geometry_msgs.msg.Pose
-				p.pose.orientation.x = quaternion[0]
-				p.pose.orientation.y = quaternion[1]
-				p.pose.orientation.z = quaternion[2]
-				p.pose.orientation.w = quaternion[3]
-				nav_path_local_msg.poses.append(p)
-
-			nav_path_local_pub_obj.publish(nav_path_local_msg)
+					quaternion = quaternion_from_euler(0.0, 0.0, res[3][i])
+					#type(pose) = geometry_msgs.msg.Pose
+					p.pose.orientation.x = quaternion[0]
+					p.pose.orientation.y = quaternion[1]
+					p.pose.orientation.z = quaternion[2]
+					p.pose.orientation.w = quaternion[3]
+					nav_path_msg.poses.append(p)
+				nav_path_pub_obj.publish(nav_path_msg)
 			
+				'''
+				# local coordinates
+				nav_path_local_msg = Path();
+				nav_path_local_msg.header.frame_id = 'base_link'
+				x_curr = res[0][0]
+				y_curr = res[1][0]
+				psi_curr = res[3][0] - np.pi/2.0
+				for i in range(len(res[0])):
+					p = PoseStamped()
+					p.header.seq = i
+					p.header.frame_id = 'base_link'
+					p.pose.position.x = (res[0][i]-x_curr)*np.cos(psi_curr) + (res[1][i]-y_curr)*np.sin(psi_curr)
+					p.pose.position.y = -(res[0][i]-x_curr)*np.sin(psi_curr) + (res[1][i]-y_curr)*np.cos(psi_curr)
+					p.pose.position.z = 0.0
+
+					quaternion = quaternion_from_euler(0.0, 0.0, res[3][i]-res[3][0])
+					#type(pose) = geometry_msgs.msg.Pose
+					p.pose.orientation.x = quaternion[0]
+					p.pose.orientation.y = quaternion[1]
+					p.pose.orientation.z = quaternion[2]
+					p.pose.orientation.w = quaternion[3]
+					nav_path_local_msg.poses.append(p)
+
+				nav_path_local_pub_obj.publish(nav_path_local_msg)
+				'''
 		else:
 			acc_pub_obj.publish(Float32Msg(-1.0))
 			steer_pub_obj.publish(Float32Msg(0.0))
