@@ -28,7 +28,8 @@ module GPSKinMPCPathFollower
 
     #### (1) Initialize model and model parameters and MPC gains ####
 	dt_control = 0.05		# control period, ts (s)
-    mdl = Model(solver = IpoptSolver(print_level=0, max_cpu_time = dt_control))
+    # mdl = Model(solver = IpoptSolver(print_level=0, max_cpu_time = dt_control))
+    mdl = Model(with_optimizer(Ipopt.Optimizer, print_level=0, max_cpu_time = dt_control)) # new syntax for JuMP 0.19
 
 	L_a     = 1.5213 		# dist from CoG to front axle (m)
 	L_b     = 1.4987 		# dist from CoG to rear axle (m)
@@ -109,13 +110,22 @@ module GPSKinMPCPathFollower
 	@NLparameter(mdl, v_target == v_ref)
 
 	# Cost function.
-    @NLobjective(mdl, Min, sum{ C_x*(x[i] - x_r[i])^2 + C_y*(y[i] - y_r[i])^2 + C_psi*(psi[i] - psi_r[i])^2 , i=2:(N+1)} + 
-                           C_v *sum{ (v[i] - v_target)^2, i = 2:N} + 
-                           C_acc*sum{(acc[i])^2, i=1:N} +
-                           C_df*sum{(d_f[i])^2, i=1:N} +
-						   C_dacc*sum{(acc[i+1] - acc[i])^2, i=1:(N-1)} +
-                           C_ddf*sum{(d_f[i+1] - d_f[i])^2, i=1:(N-1)} + 
-						   sum{ sl_df[i] + sl_acc[i], i=1:N}
+# curly syntax no longer supported
+#     @NLobjective(mdl, Min, sum{ C_x*(x[i] - x_r[i])^2 + C_y*(y[i] - y_r[i])^2 + C_psi*(psi[i] - psi_r[i])^2 , i=2:(N+1)} + 
+#                            C_v *sum{ (v[i] - v_target)^2, i = 2:N} + 
+#                            C_acc*sum{(acc[i])^2, i=1:N} +
+#                            C_df*sum{(d_f[i])^2, i=1:N} +
+# 						   C_dacc*sum{(acc[i+1] - acc[i])^2, i=1:(N-1)} +
+#                            C_ddf*sum{(d_f[i+1] - d_f[i])^2, i=1:(N-1)} + 
+# 						   sum{ sl_df[i] + sl_acc[i], i=1:N}
+# 				)
+    @NLobjective(mdl, Min, sum( C_x*(x[i] - x_r[i])^2 + C_y*(y[i] - y_r[i])^2 + C_psi*(psi[i] - psi_r[i])^2 for i in 2:(N+1)) + 
+                           C_v *sum( (v[i] - v_target)^2 for i in 2:N) + 
+                           C_acc*sum((acc[i])^2 for i in 1:N) +
+                           C_df*sum((d_f[i])^2 for i in 1:N) +
+						   C_dacc*sum((acc[i+1] - acc[i])^2 for i in 1:(N-1)) +
+                           C_ddf*sum((d_f[i+1] - d_f[i])^2 for i in 1:(N-1)) + 
+						   sum( sl_df[i] + sl_acc[i] for i in 1:N)
 				)
 
 	#### (4) Define System Dynamics Constraints ####
@@ -140,7 +150,10 @@ module GPSKinMPCPathFollower
 
     #### (5) Initialize Solver ####
 	#println("MPC: Initial solve ...")
-	status = solve(mdl)
+    # status = solve(mdl)
+    # new syntax
+    optimize!(mdl)
+    status = (termination_status(mdl), primal_status(mdl), dual_status(mdl))
 	#println("MPC: Finished initial solve: ", status)
 	
 	#################################
@@ -189,13 +202,20 @@ module GPSKinMPCPathFollower
 	##### Model Solve Function #####
     function solve_model()
         # Solve the model, assuming relevant update functions have been called by the user.
-        tic()
-        status = solve(mdl)
-        solv_time = toq()
+        # tic()
+        start = time()
+        # status = solve(mdl)
+        # new syntax
+        optimize!(mdl)
+        status = (termination_status(mdl), primal_status(mdl), dual_status(mdl))
+        # solv_time = toq()
+        solv_time = time() - start
 
         # get optimal solutions
-        d_f_opt = getvalue(d_f[1:N])
-        acc_opt = getvalue(acc[1:N])
+        #d_f_opt = getvalue(d_f[1:N])
+        #acc_opt = getvalue(acc[1:N])
+        d_f_opt = value.(d_f[1:N])
+        acc_opt = value.(acc[1:N])
         return acc_opt[1], d_f_opt[1], status, solv_time
     end
 
@@ -204,21 +224,36 @@ module GPSKinMPCPathFollower
 	function get_solver_results()
 		# This function gets all relevant solver variables and returns it to the client.
 		# Handy for debugging or logging full results.
+    
+# 		# State Variables and Reference
+# 		x_mpc   = getvalue(x[1:(N+1)])
+# 		y_mpc   = getvalue(y[1:(N+1)])
+# 		v_mpc   = getvalue(v[1:(N+1)])
+# 		psi_mpc = getvalue(psi[1:(N+1)])
+
+# 		x_ref   = getvalue(x_r[1:(N+1)])
+# 		y_ref   = getvalue(y_r[1:(N+1)])
+# 		psi_ref = getvalue(psi_r[1:(N+1)])
+# 		v_ref   = getvalue(v_target)
+
+# 		# Optimal Solution
+#         d_f_opt = getvalue(d_f[1:N])
+#         acc_opt = getvalue(acc[1:N])
 
 		# State Variables and Reference
-		x_mpc   = getvalue(x[1:(N+1)])
-		y_mpc   = getvalue(y[1:(N+1)])
-		v_mpc   = getvalue(v[1:(N+1)])
-		psi_mpc = getvalue(psi[1:(N+1)])
+		x_mpc   = value.(x[1:(N+1)])
+		y_mpc   = value.(y[1:(N+1)])
+		v_mpc   = value.(v[1:(N+1)])
+		psi_mpc = value.(psi[1:(N+1)])
 
-		x_ref   = getvalue(x_r[1:(N+1)])
-		y_ref   = getvalue(y_r[1:(N+1)])
-		psi_ref = getvalue(psi_r[1:(N+1)])
-		v_ref   = getvalue(v_target)
+		x_ref   = value.(x_r[1:(N+1)])
+		y_ref   = value.(y_r[1:(N+1)])
+		psi_ref = value.(psi_r[1:(N+1)])
+		v_ref   = value(v_target)
 
 		# Optimal Solution
-        d_f_opt = getvalue(d_f[1:N])
-        acc_opt = getvalue(acc[1:N])
+        d_f_opt = value.(d_f[1:N])
+        acc_opt = value.(acc[1:N])
 
 		return x_mpc, y_mpc, v_mpc, psi_mpc, x_ref, y_ref, v_ref, psi_ref, d_f_opt, acc_opt	
 	end
